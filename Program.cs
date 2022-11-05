@@ -311,14 +311,14 @@ $@"An error occurred trying to read {keyfile}:
 							for (int i = 0; i < blocks.Count; i++)
 							{
 								Block block = blocks[i];
-								if ((block.Flags & 0x0000003e) != 2)
+								if ((block.Flags & 0x0000003e) != 2 && (block.Flags & 0x0000003f) != 0)
 								{
 									throw new NotImplementedException($"Compresstion type '0x{block.Flags & 0x0000003f:X2}' is not supported");
 								}
 								int compressedSize = (int)block.CompressedSize;
 								byte[] compressedBytes = new byte[compressedSize];
 								reader.Read(compressedBytes, 0, compressedSize);
-								if ((block.Flags & 0x100) != 0)
+								if ((block.Flags & 0x100) != 0 && (block.Flags & 0x0000003f) != 0)
 								{
 									pgr.DecryptBlock(compressedBytes, compressedSize, i);
 								}
