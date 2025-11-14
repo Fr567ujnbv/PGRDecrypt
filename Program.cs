@@ -158,7 +158,7 @@ $@"An error occurred trying to read {keyfile}:
 						{
 							throw new NotSupportedException("File is not UnityFS");
 						}
-						if (!reader.TryReadInt32(out int _) ||                                   // Version
+						if (!reader.TryReadInt32(out int version) ||                                   // Version
 							!reader.TryReadStringNullTerm(out string _) ||                       // UnityWebBundleVersion
 							!reader.TryReadStringNullTerm(out string _))                         // UnityWebMinimumRevision
 						{
@@ -217,6 +217,14 @@ $@"An error occurred trying to read {keyfile}:
 							throw new NotImplementedException($"Compresstion type '0x{flags & 0x0000003f:X2}' is not supported");
 						}
 
+						long padding = 0;
+						if (version >= 7)
+						{
+							padding -= file.Position;
+							file.Position = (long)Math.Ceiling((decimal)file.Position / 16) * 16;
+							padding += file.Position;
+						}
+
 						List<Block> blocks = new List<Block>();
 						List<DirectoryInfo> directories = new List<DirectoryInfo>();
 
@@ -268,13 +276,20 @@ $@"An error occurred trying to read {keyfile}:
 							}
 						}
 
+						if (version >= 7)
+						{
+							padding -= file.Position;
+							file.Position = (long)Math.Ceiling((decimal)file.Position / 16) * 16;
+							padding += file.Position;
+						}
+
 						using (FileStream writer = File.OpenWrite(dArg))
 						{
 							long blockPtr = file.Position;
 							file.Position = 0;
 
 							// Write header
-							for (int i = 0; i < (int)blockPtr - metadataSize - 0x46; i++)
+							for (int i = 0; i < (int)blockPtr - metadataSize - 0x46 - padding; i++)
 							{
 								writer.WriteByte(reader.ReadByte());
 							}
@@ -286,7 +301,17 @@ $@"An error occurred trying to read {keyfile}:
 							writer.WriteByte((byte)(flags));
 
 							// Skip encryption header
-							file.Position = blockPtr - metadataSize;
+							file.Position = blockPtr - metadataSize - padding;
+
+							if (version >= 7)
+							{
+								file.Position = (long)Math.Ceiling((decimal)file.Position / 16) * 16;
+								long newpadding = (long)Math.Ceiling((decimal)writer.Position / 16) * 16;
+								while (writer.Position < newpadding)
+								{
+									writer.WriteByte(0x00);
+								}
+							}
 
 							// Write metadata
 							for (int i = 0; i < metadataSize; i++)
@@ -295,18 +320,15 @@ $@"An error occurred trying to read {keyfile}:
 #warning TODO: Patch out encrypted block flag in metadata
 							}
 
-							// Patch bundles size
-							writer.Position = bundleSizePtr;
-							bundleSize -= 0x46;
-							writer.WriteByte((byte)(bundleSize >> 56));
-							writer.WriteByte((byte)(bundleSize >> 48));
-							writer.WriteByte((byte)(bundleSize >> 40));
-							writer.WriteByte((byte)(bundleSize >> 32));
-							writer.WriteByte((byte)(bundleSize >> 24));
-							writer.WriteByte((byte)(bundleSize >> 16));
-							writer.WriteByte((byte)(bundleSize >> 8));
-							writer.WriteByte((byte)(bundleSize));
-							writer.Position = blockPtr - 0x46;
+							if (version >= 7)
+							{
+								file.Position = (long)Math.Ceiling((decimal)file.Position / 16) * 16;
+								long newpadding = (long)Math.Ceiling((decimal)writer.Position / 16) * 16;
+								while (writer.Position < newpadding)
+								{
+									writer.WriteByte(0x00);
+								}
+							}
 
 							for (int i = 0; i < blocks.Count; i++)
 							{
@@ -326,6 +348,17 @@ $@"An error occurred trying to read {keyfile}:
 								Console.WriteLine($"Decrypted block {i} of {blocks.Count}");
 								writer.Write(compressedBytes, 0, compressedSize);
 							}
+
+							// Patch bundles size
+							writer.Position = bundleSizePtr;
+							writer.WriteByte((byte)(writer.Length >> 56));
+							writer.WriteByte((byte)(writer.Length >> 48));
+							writer.WriteByte((byte)(writer.Length >> 40));
+							writer.WriteByte((byte)(writer.Length >> 32));
+							writer.WriteByte((byte)(writer.Length >> 24));
+							writer.WriteByte((byte)(writer.Length >> 16));
+							writer.WriteByte((byte)(writer.Length >> 8));
+							writer.WriteByte((byte)(writer.Length));
 						}
 					}
 				}
